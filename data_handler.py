@@ -72,7 +72,7 @@ def upload_to_gbq(dataset, json_url, table_name):
     destination_table = client.get_table(dataset_ref.table(table_name))
     print("Loaded {} rows.".format(destination_table.num_rows))
     load_end = datetime.datetime.now()
-    print('Load Duration: ' + str(load_end-load_start))
+    print('Load Duration: ' + str(load_end-load_start) + '\n' + str(load_end))
 
 # DB Operations
 def update_hourly_weather_stats():
