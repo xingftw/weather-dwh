@@ -25,7 +25,7 @@ def retrieve_weather_per_api(endpoint, city):
 
 # Format json for DB injestion
 def format_json_for_db_injestion(json_list,output_filename):
-    os.remove(output_filename)
+    # os.remove(output_filename)
     with open(output_filename, "w") as f:
         f.write('\n'.join(json.dumps(i).replace('"3h"', '"_3h_"') for i in json_list))
 
