@@ -82,7 +82,8 @@ def update_hourly_weather_stats():
     QUERY = """
         #standardSQL
         INSERT INTO `weather-dwh.hourly_weather.stats` 
-        SELECT * FROM `weather-dwh.ods_30days.curr_weather` WHERE batch_time > (select max(batch_time) from `weather-dwh.hourly_weather.stats*`)"""
+        SELECT batch_time, cod, name, id, timezone, sys, clouds, dt, base, wind.deg wind_deg, wind.speed wind_speed, coord, coord.lat, coord.lon, visibility, main, weather  
+        FROM `weather-dwh.ods_30days.curr_weather` WHERE batch_time > (select max(batch_time) from `weather-dwh.hourly_weather.stats*`)"""
 
     query_job = client.query(QUERY)  # API request
     rows = query_job.result()  # Waits for query to finish
