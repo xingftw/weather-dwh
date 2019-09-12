@@ -32,7 +32,6 @@ def retrieve_weather_per_api(api, city):
     if api == 'forecast':
         for item in response_data['list']:
             item.update(response_data['city'])
-            item.update({'api_pulled' : pulltime})
             city_forecasts.append(item)
         return city_forecasts
     elif api == 'weather':
@@ -69,12 +68,25 @@ def upload_to_gbq(dataset, json_url, table_name):
     load_end = datetime.datetime.now()
     print('Load Duration: ' + str(load_end-load_start))
 
+
+def update_hourly_weather_stats():
+    # Perform a query.
+    client = bigquery.Client.from_service_account_json(
+        'weather-dwh-gbq_storage.json')
+    QUERY = (
+        'INSERT INTO `weather-dwh.hourly_weather.stats` AS SELECT *, now() AS api_pulled FROM `weather-dwh.ods_30days.curr_weather`'
+        'WHERE api_pulled > (select max(api_pulled) from `weather-dwh.hourly_forecasts.forecasts*`)')
+    query_job = client.query(QUERY)  # API request
+    rows = query_job.result()  # Waits for query to finish
+
+    for row in rows:
+        print(row.name)
+
 # Prep
 cities_forecasts = []
 weather_datas = []
 
-pulltime = str(datetime.datetime.now())
-for city in ['Bradford,gb','Southampton,gb']:##,'Oxford,gb','Armagh,gb','Aberporth,gb' ]:
+for city in ['Bradford,gb','Southampton,gb','Oxford,gb','Armagh,gb','Aberporth,gb' ]:
     weather_datas.append(retrieve_weather_per_api('weather', city))
     cities_forecasts.extend(retrieve_weather_per_api('forecast', city))
 upload_blob('weather-dwh', 'curr_weather.json', 'curr_weather.json')
@@ -88,3 +100,5 @@ format_json_for_db_injestion(weather_datas, "curr_weather.json")
 
 upload_to_gbq('ods_7days', 'gs://weather-dwh/forecasts.json', 'forecasts')
 upload_to_gbq('ods_30days', 'gs://weather-dwh/curr_weather.json', 'curr_weather')
+
+update_hourly_weather_stats()
