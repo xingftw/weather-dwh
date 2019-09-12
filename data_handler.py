@@ -2,7 +2,34 @@ import requests,json,csv, os, datetime
 
 from google.cloud import storage,bigquery
 
-# Method to upload to google Buckets
+batch_time = str(datetime.datetime.now())
+
+def retrieve_weather_per_api(endpoint, city):
+    weather_list = []
+    response = requests.get(
+        'http://api.openweathermap.org/data/2.5/' + endpoint + '?q=' + city + '&APPID=78b0bc366c6e99bf271709c77d07ce7e')
+    print(response)
+    response_data = json.loads(response.text)
+
+    if endpoint == 'forecast':
+        for item in response_data['list']:
+            item.update(response_data['city'])
+            item.update({'batch_time' : batch_time})
+            weather_list.append(item)
+
+    elif endpoint == 'weather':
+        response_data.update({'batch_time' : batch_time})
+        return response_data
+
+    return weather_list
+
+# Format json for DB injestion
+def format_json_for_db_injestion(json_list,output_filename):
+    os.remove(output_filename)
+    with open(output_filename, "w") as f:
+        f.write('\n'.join(json.dumps(i).replace('"3h"', '"_3h_"') for i in json_list))
+
+# Upload to Google Bucket
 def upload_blob(bucket_name, source_file_name, destination_blob_name):
     """Uploads a file to the bucket."""
     storage_client = storage.Client.from_service_account_json(
@@ -16,28 +43,7 @@ def upload_blob(bucket_name, source_file_name, destination_blob_name):
         source_file_name,
         destination_blob_name))
 
-# Format json for DB injestion
-def format_json_for_db_injestion(json_list,output_filename):
-    os.remove(output_filename)
-    with open(output_filename, "w") as f:
-        f.write('\n'.join(json.dumps(i).replace('"3h"', '"_3h_"') for i in json_list))
-
-def retrieve_weather_per_api(api, city):
-    city_forecasts = []
-    response = requests.get(
-        'http://api.openweathermap.org/data/2.5/'+ api +'?q=' + city + '&APPID=78b0bc366c6e99bf271709c77d07ce7e')
-    print(response)
-    response_data = json.loads(response.text)
-
-    if api == 'forecast':
-        for item in response_data['list']:
-            item.update(response_data['city'])
-            city_forecasts.append(item)
-        return city_forecasts
-    elif api == 'weather':
-        return response_data
-
-
+# Upload to GBQ
 def upload_to_gbq(dataset, json_url, table_name):
 
     load_start = datetime.datetime.now()
@@ -68,37 +74,46 @@ def upload_to_gbq(dataset, json_url, table_name):
     load_end = datetime.datetime.now()
     print('Load Duration: ' + str(load_end-load_start))
 
-
+# DB Operations
 def update_hourly_weather_stats():
     # Perform a query.
     client = bigquery.Client.from_service_account_json(
         'weather-dwh-gbq_storage.json')
-    QUERY = (
-        'INSERT INTO `weather-dwh.hourly_weather.stats` AS SELECT *, now() AS api_pulled FROM `weather-dwh.ods_30days.curr_weather`'
-        'WHERE api_pulled > (select max(api_pulled) from `weather-dwh.hourly_forecasts.forecasts*`)')
+    QUERY = """
+        #standardSQL
+        INSERT INTO `weather-dwh.hourly_weather.stats` 
+        SELECT * FROM `weather-dwh.ods_30days.curr_weather` WHERE batch_time > (select max(batch_time) from `weather-dwh.hourly_weather.stats*`)"""
+
     query_job = client.query(QUERY)  # API request
     rows = query_job.result()  # Waits for query to finish
 
     for row in rows:
         print(row.name)
 
-# Prep
-cities_forecasts = []
-weather_datas = []
+def main():
 
-for city in ['Bradford,gb','Southampton,gb','Oxford,gb','Armagh,gb','Aberporth,gb' ]:
-    weather_datas.append(retrieve_weather_per_api('weather', city))
-    cities_forecasts.extend(retrieve_weather_per_api('forecast', city))
-upload_blob('weather-dwh', 'curr_weather.json', 'curr_weather.json')
+    # Prep
+    forecasts = []
+    curr_weather = []
 
-# Create files, upload to store and DB
-format_json_for_db_injestion(cities_forecasts, "forecasts.json")
-upload_blob('weather-dwh', 'forecasts.json', 'forecasts.json')
+    # Get api response as append to lists
+    for city in ['Bradford,gb','Southampton,gb']:##,'Oxford,gb','Armagh,gb','Aberporth,gb' ]:
+        curr_weather.append(retrieve_weather_per_api('weather', city))
+        forecasts.extend(retrieve_weather_per_api('forecast', city))
 
-# Create files, upload to store and DB
-format_json_for_db_injestion(weather_datas, "curr_weather.json")
+    # Create files, upload to store and DB
+    format_json_for_db_injestion(curr_weather, "curr_weather.json")
+    upload_blob('weather-dwh', 'curr_weather.json', 'curr_weather.json')
 
-upload_to_gbq('ods_7days', 'gs://weather-dwh/forecasts.json', 'forecasts')
-upload_to_gbq('ods_30days', 'gs://weather-dwh/curr_weather.json', 'curr_weather')
+    # Create files, upload to store and DB
+    format_json_for_db_injestion(forecasts, "forecasts.json")
+    upload_blob('weather-dwh', 'forecasts.json', 'forecasts.json')
 
-update_hourly_weather_stats()
+    upload_to_gbq('ods_30days', 'gs://weather-dwh/curr_weather.json', 'curr_weather')
+    upload_to_gbq('ods_7days', 'gs://weather-dwh/forecasts.json', 'forecasts')
+
+
+    update_hourly_weather_stats()
+
+if __name__ == '__main__':
+    main()
