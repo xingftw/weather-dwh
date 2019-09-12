@@ -1,8 +1,10 @@
-import requests,json,csv, os, datetime
-
+import requests,json,csv, os,sys, datetime
+sys.path.append(os.getcwd())
 from google.cloud import storage,bigquery
 
 batch_time = str(datetime.datetime.now())
+
+
 
 def retrieve_weather_per_api(endpoint, city):
     weather_list = []
@@ -72,7 +74,7 @@ def upload_to_gbq(dataset, json_url, table_name):
     destination_table = client.get_table(dataset_ref.table(table_name))
     print("Loaded {} rows.".format(destination_table.num_rows))
     load_end = datetime.datetime.now()
-    print('Load Duration: ' + str(load_end-load_start) + '\n' + str(load_end))
+    print('Load Duration: ' + str(load_end-load_start) + '\nLoad end: ' + str(load_end))
 
 # DB Operations
 def update_hourly_weather_stats():
